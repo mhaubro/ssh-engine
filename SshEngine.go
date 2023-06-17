@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,8 +12,6 @@ import (
 )
 
 func main() {
-	// log.Println("Running on " + runtime.GOOS)
-
 	// Read configuration
 	configuration := readConfiguration()
 	debugLogging := false
@@ -26,7 +23,6 @@ func main() {
 			log.Fatal(err)
 		}
 		defer file.Close()
-
 		log.SetOutput(file)
 
 		debugLogging = true
@@ -35,20 +31,22 @@ func main() {
 	server := fmt.Sprintf("%s:%s", configuration.Host, configuration.Port)
 
 	// Setup the client configuration
-	sshConfig := getSshConfig(configuration)
+	sshConfig, err := getSshConfig(configuration)
+	if err != nil {
+		log.Fatalf("Failed to get SSH configuration: %s", err)
+	}
 
 	// Start the connection
 	client, err := ssh.Dial("tcp", server, sshConfig)
 	if err != nil {
-		fmt.Printf("Could not connect to ssh (failed to dial). Error is: %s\n", err)
-		os.Exit(1)
+		log.Fatalf("Could not connect to SSH (failed to dial): %s", err)
 	}
+	defer client.Close()
 
 	// Start a session
 	session, err := client.NewSession()
 	if err != nil {
-		fmt.Printf("Failed to create ssh session. Error is: %s\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed to create SSH session: %s", err)
 	}
 	defer session.Close()
 
@@ -60,8 +58,7 @@ func main() {
 
 	// Start remote shell
 	if err := session.Shell(); err != nil {
-		fmt.Printf("Failed to start shell. Error is: %s\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed to start shell: %s", err)
 	}
 
 	// Run the supplied command first
@@ -71,26 +68,26 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
+		input := scanner.Text()
+
 		if debugLogging {
-			log.Println("Input: " + scanner.Text())
+			log.Println("Input: " + input)
 		}
 
-		fmt.Fprintf(stdin, "%s\n", scanner.Text())
-		if scanner.Text() == "quit" {
+		fmt.Fprintf(stdin, "%s\n", input)
+		if input == "quit" {
 			if debugLogging {
 				log.Println("Quit sent")
 			}
-
 			break
 		}
 	}
 }
 
-func getSshConfig(configuration Configurations) *ssh.ClientConfig {
+func getSshConfig(configuration Configurations) (*ssh.ClientConfig, error) {
 	key, err := getKeyFile(configuration.PrivateKeyFile)
 	if err != nil {
-		fmt.Printf("Could not read privateKeyFile at %s\n", configuration.PrivateKeyFile)
-		os.Exit(1)
+		return nil, fmt.Errorf("could not read privateKeyFile at %s: %w", configuration.PrivateKeyFile, err)
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -98,61 +95,49 @@ func getSshConfig(configuration Configurations) *ssh.ClientConfig {
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(key),
 		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	sshConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
 
-	return sshConfig
+	return sshConfig, nil
 }
 
-func getKeyFile(file string) (key ssh.Signer, err error) {
+func getKeyFile(file string) (ssh.Signer, error) {
 	buf, err := ioutil.ReadFile(file)
 	if err != nil {
-		fmt.Printf("Error reading the key file. Error is: %s\n", err)
-		return
+		return nil, fmt.Errorf("error reading the key file: %w", err)
 	}
-	key, err = ssh.ParsePrivateKey(buf)
+
+	key, err := ssh.ParsePrivateKey(buf)
 	if err != nil {
-		fmt.Printf("Error parsing the private key file. Is this a valid private key? Error is: %s\n", err)
-		return
+		return nil, fmt.Errorf("error parsing the private key file. Is this a valid private key?: %w", err)
 	}
-	return
+
+	return key, nil
 }
 
 func readConfiguration() Configurations {
-	if _, err := os.Stat("engine.yml"); errors.Is(err, os.ErrNotExist) {
-		// path/to/whatever does not exist
+	if _, err := os.Stat("engine.yml"); os.IsNotExist(err) {
 		fmt.Println("The file 'engine.yml' could not be found in the current directory")
 		os.Exit(1)
 	}
 
-	// Set the file name of the configurations file
 	viper.SetConfigName("engine")
 	viper.SetConfigType("yml")
-
-	// Set the path to look for the configurations file
 	viper.AddConfigPath(".")
 
-	// Read the Configuration
-	var configuration Configurations
+	// Read the configuration
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Config file not found; ignore error if desired
 			fmt.Println("No such config file")
-			os.Exit(1)
 		} else {
-			// Config file was found but another error was produced
-			fmt.Printf("Error reading the engine.yml file, %s", err)
-			os.Exit(1)
+			fmt.Printf("Error reading the engine.yml file: %s", err)
 		}
-
+		os.Exit(1)
 	}
 
-	// Set undefined variables
-	viper.SetDefault("logFileName", "")
-
-	err := viper.Unmarshal(&configuration)
-	if err != nil {
-		fmt.Printf("Unable to decode the engine.yml file, %v", err)
+	var configuration Configurations
+	if err := viper.Unmarshal(&configuration); err != nil {
+		fmt.Printf("Unable to decode the engine.yml file: %v", err)
 		os.Exit(1)
 	}
 
@@ -160,10 +145,10 @@ func readConfiguration() Configurations {
 }
 
 type Configurations struct {
-	User           string
-	PrivateKeyFile string
-	Host           string
-	Port           string
-	RemoteCommand  string
-	LogFileName    string
+	User           string `mapstructure:"user"`
+	PrivateKeyFile string `mapstructure:"privateKeyFile"`
+	Host           string `mapstructure:"host"`
+	Port           string `mapstructure:"port"`
+	RemoteCommand  string `mapstructure:"remoteCommand"`
+	LogFileName    string `mapstructure:"logFileName"`
 }
