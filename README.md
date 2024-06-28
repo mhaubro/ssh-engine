@@ -44,6 +44,12 @@ If you want to enable extra logging, add this to the configuration file with the
 logFileName: "engine.log"
 ```
 
+If you want to overwrite Hashtable and Threads settings that ChessBase might have capped, add one or both of these to the configuration file:
+```yml
+hash: "4096"
+threads: "8"
+```
+
 ## Running
 
 Run the proxy:

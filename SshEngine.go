@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/ssh"
@@ -72,6 +73,28 @@ func main() {
 
 		if debugLogging {
 			log.Println("Input: " + input)
+		}
+		
+		// Set threads and hash to override ChessBase
+		if configuration.Hash != "" {
+			if strings.Contains(scanner.Text(), "Hash") {
+				cmd := "setoption name Hash value " + configuration.Hash
+				if debugLogging {
+					log.Println("Overwriting Hash value with input: " + cmd)
+				}
+				fmt.Fprintf(stdin, "%s\n", cmd)
+				continue;
+			}
+		}
+		if configuration.Threads != "" {
+			if strings.Contains(scanner.Text(), "Threads") {
+				cmd := "setoption name Threads value " + configuration.Threads
+				if debugLogging {
+					log.Println("Overwriting Threads value with input: " + cmd)
+				}
+				fmt.Fprintf(stdin, "%s\n", cmd)
+				continue;
+			}
 		}
 
 		fmt.Fprintf(stdin, "%s\n", input)
@@ -150,5 +173,7 @@ type Configurations struct {
 	Host           string `mapstructure:"host"`
 	Port           string `mapstructure:"port"`
 	RemoteCommand  string `mapstructure:"remoteCommand"`
+	Hash           string `mapstructure:"hash"`
+	Threads        string `mapstructure:"threads"`
 	LogFileName    string `mapstructure:"logFileName"`
 }
